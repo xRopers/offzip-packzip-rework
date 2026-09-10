@@ -228,10 +228,7 @@ function parseOffzipListFile(listFile) {
   return results;
 }
 
-async function runOffzip(jobId, options, hooks) {
-  if (!options.inputFile) throw new Error('inputFile is required');
-  if (!options.outputDir) throw new Error('outputDir is required');
-
+async function runOffzipOnce(jobId, options, hooks) {
   const exePath = resolveBinary('offzip');
   const listFile = tempPath('.offzip-list.txt');
   const args = buildOffzipArgs(options, listFile);
@@ -244,6 +241,49 @@ async function runOffzip(jobId, options, hooks) {
   } finally {
     safeUnlink(listFile);
   }
+}
+
+// -a/-A/-s/-S all take the same windowBits guess (-z), and a real archive
+// commonly needs the *other* preset than whichever one is set: zlib-wrapped
+// streams (windowBits 15, the default) vs. headerless raw-deflate streams
+// (windowBits -15 -- e.g. inside ZIP archives). Rather than make a user
+// manually flip this and re-run when a scan comes back empty, automatically
+// retry with the other common preset once.
+const OFFZIP_WINDOW_BITS_FALLBACK = { 15: '-15', '-15': '15' };
+
+async function runOffzip(jobId, options, hooks) {
+  if (!options.inputFile) throw new Error('inputFile is required');
+  if (!options.outputDir) throw new Error('outputDir is required');
+
+  const windowBits = options.windowBits ? String(options.windowBits) : '15';
+  let pass = await runOffzipOnce(jobId, { ...options, windowBits }, hooks);
+  let usedWindowBits = windowBits;
+
+  const fallbackBits = OFFZIP_WINDOW_BITS_FALLBACK[windowBits];
+  if (pass.results.length === 0 && fallbackBits) {
+    hooks.onLog(
+      `[auto] No streams found with windowBits=${windowBits}. Retrying with ` +
+      `windowBits=${fallbackBits} in case this file uses the other common format ` +
+      `(15 = zlib, -15 = raw deflate)...`
+    );
+    const retryPass = await runOffzipOnce(jobId, { ...options, windowBits: fallbackBits }, hooks);
+    if (retryPass.results.length > 0) {
+      pass = retryPass;
+      usedWindowBits = fallbackBits;
+      hooks.onLog(`[auto] Found ${retryPass.results.length} stream(s) with windowBits=${fallbackBits}.`);
+      if (fallbackBits === '-15') {
+        hooks.onLog(
+          '[auto] Note: raw-deflate scanning (-15) has no header magic bytes to validate ' +
+          'against, so it is more prone to false-positive matches than zlib (15) -- verify ' +
+          'the results before relying on all of them.'
+        );
+      }
+    } else {
+      hooks.onLog(`[auto] Still nothing found with windowBits=${fallbackBits}. No further automatic retries.`);
+    }
+  }
+
+  return { ...pass, usedWindowBits };
 }
 
 // --- packzip (reinject) ----------------------------------------------------------

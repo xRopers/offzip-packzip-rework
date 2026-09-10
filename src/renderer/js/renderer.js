@@ -183,6 +183,12 @@ document.getElementById('btn-run-extract').addEventListener('click', async () =>
   if (result.ok) {
     renderExtractResults(result.results);
     setProgress('done');
+    // If the auto windowBits fallback kicked in and found something, reflect
+    // the setting that actually worked back into the field -- otherwise the
+    // UI would keep showing the value that found nothing.
+    if (result.usedWindowBits && result.usedWindowBits !== options.windowBits) {
+      document.getElementById('extract-windowbits').value = result.usedWindowBits;
+    }
     appendLog(`[ui] Done. Exit code ${result.exitCode}. Found ${result.results.length} stream(s).`);
   } else {
     setProgress('error');

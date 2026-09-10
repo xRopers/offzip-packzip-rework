@@ -145,6 +145,27 @@ but the real file is two lines per stream):
 0x<END_OFFSET> <zsizeDecimal> <sizeDecimal>
 ```
 
+**Smart windowBits fallback:** if a scan with the requested `-z` value finds
+zero streams and that value is one of the two common presets (`15` zlib /
+`-15` raw deflate), `runOffzip()` automatically retries with the other one --
+a raw-deflate-only file (e.g. data extracted from a ZIP) looks like "nothing
+found" under the zlib default, and vice versa. Verified end-to-end against a
+real raw-deflate-only fixture; the UI reflects back whichever windowBits
+value actually worked. Raw-deflate scanning has no header magic bytes to
+validate against, so expect more false positives than zlib scanning when the
+fallback engages -- the console log calls this out when it happens.
+
+**What `-s`/`-S` actually do (verified, not just read from `--help`):** despite
+the name, `-s` alone does **not** extract anything -- it locates the first
+stream from the given offset and reports where it is, writing no file at all.
+`-S` is the same but keeps scanning the whole file (still no extraction).
+Combining `-s` with `-a` has no special effect -- `-a` just extracts
+everything from the offset onward, same as `-a` alone. There's no CLI
+combination that means "extract exactly one stream and stop"; to grab a
+single known stream, set Start Offset to its address and run a normal
+Extract -- if other streams follow it in the file you'll get their files too,
+but the one you want is right there, named by its offset.
+
 ### packzip 0.3.1
 
 ```
