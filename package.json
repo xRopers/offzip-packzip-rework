@@ -1,0 +1,45 @@
+{
+  "name": "zlib-workbench",
+  "productName": "Zlib Workbench",
+  "version": "0.1.0",
+  "description": "A modern desktop UI wrapping Luigi Auriemma's offzip (extract zlib streams) and packzip (reinject zlib streams) CLI tools.",
+  "main": "src/main/main.js",
+  "author": "Thomas Riddle",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build:native": "powershell -ExecutionPolicy Bypass -File scripts/build-native-win.ps1",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.local.zlibworkbench",
+    "productName": "Zlib Workbench",
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/win32-x64",
+        "to": "bin",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

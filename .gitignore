@@ -1,0 +1,11 @@
+node_modules/
+dist/
+out/
+native/*/build/*
+native/zlib/
+*.log
+
+# Note: bin/win32-x64/*.exe is intentionally NOT ignored -- the compiled
+# offzip.exe/packzip.exe already in this repo are a verified part of the
+# deliverable, not a rebuildable-from-CI artifact. Remove this note and add
+# them back to .gitignore if your workflow prefers rebuilding on every clone.

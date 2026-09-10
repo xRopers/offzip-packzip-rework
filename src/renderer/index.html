@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>Zlib Workbench</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="titlebar">
+      <div class="brand">
+        <span class="brand-mark">Z</span>
+        <span class="brand-name">Zlib Workbench</span>
+      </div>
+      <nav class="mode-toggle" role="tablist" aria-label="Mode">
+        <button class="mode-btn active" data-mode="extract" role="tab" aria-selected="true">Extract (offzip)</button>
+        <button class="mode-btn" data-mode="reinject" role="tab" aria-selected="false">Reinject (packzip)</button>
+      </nav>
+    </header>
+
+    <main class="content">
+      <!-- ============================ EXTRACT MODE ============================ -->
+      <section class="panel" id="panel-extract" data-panel="extract">
+        <div class="panel-grid">
+          <div class="col col-left">
+            <div class="card">
+              <h2 class="card-title">Input file</h2>
+              <div class="dropzone" id="dropzone-extract-input" tabindex="0">
+                <div class="dropzone-icon">&#8595;</div>
+                <p class="dropzone-text">Drag &amp; drop a file here</p>
+                <p class="dropzone-sub">or click to browse</p>
+                <p class="dropzone-file" id="extract-input-filename"></p>
+              </div>
+            </div>
+
+            <div class="card">
+              <h2 class="card-title">Scan options</h2>
+              <div class="field-row">
+                <label class="field">
+                  <span class="field-label">Start offset (hex or decimal)</span>
+                  <input type="text" id="extract-offset" placeholder="0x0" value="0x0" />
+                </label>
+                <label class="field">
+                  <span class="field-label">windowBits (-z)</span>
+                  <input type="text" id="extract-windowbits" placeholder="15" value="15" />
+                </label>
+              </div>
+              <p class="field-hint">15 = zlib (default). -15 = raw deflate, e.g. inside ZIP archives.</p>
+              <label class="field field-block">
+                <span class="field-label">Minimum compressed size to consider (-m, optional)</span>
+                <input type="text" id="extract-minsize" placeholder="32 (default)" />
+              </label>
+            </div>
+
+            <div class="card">
+              <h2 class="card-title">Output folder</h2>
+              <div class="path-picker">
+                <input type="text" id="extract-outdir" placeholder="Choose an output folder&hellip;" readonly />
+                <button class="btn btn-secondary" id="btn-pick-outdir">Browse&hellip;</button>
+              </div>
+            </div>
+
+            <button class="btn btn-primary btn-block" id="btn-run-extract">Extract streams</button>
+          </div>
+
+          <div class="col col-right">
+            <div class="card card-grow">
+              <h2 class="card-title">Found zlib streams</h2>
+              <div class="table-wrap">
+                <table class="results-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Offset</th>
+                      <th>Compressed size</th>
+                      <th>Uncompressed size</th>
+                    </tr>
+                  </thead>
+                  <tbody id="extract-results-body">
+                    <tr class="empty-row"><td colspan="4">No results yet &mdash; run an extraction to populate this table.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ REINJECT MODE ============================ -->
+      <section class="panel hidden" id="panel-reinject" data-panel="reinject">
+        <div class="panel-grid">
+          <div class="col col-left">
+            <div class="card">
+              <h2 class="card-title">Original archive file</h2>
+              <div class="dropzone" id="dropzone-reinject-original" tabindex="0">
+                <div class="dropzone-icon">&#8595;</div>
+                <p class="dropzone-text">Drag &amp; drop the original file here</p>
+                <p class="dropzone-sub">or click to browse</p>
+                <p class="dropzone-file" id="reinject-original-filename"></p>
+              </div>
+            </div>
+
+            <div class="card">
+              <h2 class="card-title">Modified file to reinject</h2>
+              <div class="dropzone" id="dropzone-reinject-modified" tabindex="0">
+                <div class="dropzone-icon">&#8595;</div>
+                <p class="dropzone-text">Drag &amp; drop the modified file here</p>
+                <p class="dropzone-sub">or click to browse</p>
+                <p class="dropzone-file" id="reinject-modified-filename"></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="col col-right">
+            <div class="card">
+              <h2 class="card-title">Target offset</h2>
+              <div class="field-row">
+                <label class="field">
+                  <span class="field-label">Exact offset in the original file (-o)</span>
+                  <input type="text" id="reinject-offset" placeholder="0x3E8" />
+                </label>
+                <label class="field">
+                  <span class="field-label">windowBits (-w)</span>
+                  <input type="text" id="reinject-windowbits" placeholder="15" value="15" />
+                </label>
+              </div>
+              <p class="field-hint">15 = zlib (default), -15 = raw deflate, 0 = LZMA.</p>
+              <label class="field field-block">
+                <span class="field-label">Original stream's compressed size, in bytes (optional, from an earlier Extract scan)</span>
+                <input type="text" id="reinject-original-zsize" placeholder="e.g. 68 &mdash; enables the overflow safety check below" />
+              </label>
+            </div>
+
+            <div class="card">
+              <h2 class="card-title">Output (a safety copy &mdash; the original is never modified)</h2>
+              <div class="path-picker">
+                <input type="text" id="reinject-outfile" placeholder="Defaults to <original>.patched.<ext> next to the original file" readonly />
+                <button class="btn btn-secondary" id="btn-pick-outfile">Browse&hellip;</button>
+              </div>
+            </div>
+
+            <div class="banner banner-warning hidden" id="reinject-overflow-warning">
+              <p class="banner-title">This replacement is larger than the original stream</p>
+              <p class="banner-body" id="reinject-overflow-body"></p>
+              <p class="banner-body">packzip does not shift or resize surrounding data. Writing this would
+                truncate the working copy right after this stream, destroying everything that came after
+                it in the original file.</p>
+              <button class="btn btn-danger" id="btn-reinject-force">I understand &mdash; inject anyway</button>
+            </div>
+
+            <button class="btn btn-primary btn-block" id="btn-run-reinject">Reinject stream</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ============================ GLOBAL: progress + console ============================ -->
+    <footer class="console-dock">
+      <div class="progress-row">
+        <div class="progress-track">
+          <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <span class="progress-label" id="progress-label">Idle</span>
+        <button class="btn btn-ghost" id="btn-console-toggle">Console &#9650;</button>
+      </div>
+      <div class="console" id="console" hidden>
+        <div class="console-header">
+          <span>Engine output</span>
+          <button class="btn btn-ghost btn-small" id="btn-console-clear">Clear</button>
+        </div>
+        <pre class="console-body" id="console-body"></pre>
+      </div>
+    </footer>
+  </div>
+
+  <script src="js/renderer.js"></script>
+</body>
+</html>
