@@ -3,7 +3,14 @@ dist/
 out/
 native/*/build/*
 native/zlib/
+.driver-shots/
 *.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
 
 # Note: bin/win32-x64/*.exe is intentionally NOT ignored -- the compiled
 # offzip.exe/packzip.exe already in this repo are a verified part of the

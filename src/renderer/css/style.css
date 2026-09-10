@@ -154,12 +154,14 @@ html, body {
 /* ---------------- form fields ---------------- */
 
 .field-row { display: flex; gap: 10px; }
-.field { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.field { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .field-block { width: 100%; }
 
 .field-label { font-size: 12px; color: var(--text-dim); }
 
 input[type="text"] {
+  width: 100%;
+  min-width: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -302,6 +304,14 @@ input[readonly] { color: var(--text-dim); cursor: default; }
   max-height: 220px;
   display: flex;
   flex-direction: column;
+}
+/* Author-stylesheet class rules always beat the browser's built-in
+   `[hidden] { display: none }` default when specificity ties (author origin
+   wins over user-agent origin regardless) -- so `.console`'s `display: flex`
+   above silently defeated the `hidden` attribute entirely. This re-asserts
+   it with higher specificity so toggling `.hidden` in JS actually hides it. */
+.console[hidden] {
+  display: none;
 }
 .console-header {
   display: flex;

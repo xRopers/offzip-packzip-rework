@@ -1,14 +1,64 @@
 # Zlib Workbench
 
-A dark-mode-first Electron GUI wrapping Luigi Auriemma's **Offzip 0.4.1**
-(extract zlib/deflate streams from a file) and **PackZip 0.3.1** (reinject a
-recompressed stream back into a file at a given offset).
+A dark-mode-first Electron GUI wrapping Luigi Auriemma's **Offzip** (extract
+zlib/deflate streams from a file) and **PackZip** (recompress and reinject a
+stream back into a file at a given offset) — the two classic CLI tools game
+modders and file-format researchers use to pull apart and patch back together
+zlib-compressed data inside arbitrary binary files.
 
-**Status:** source for both tools is in place under `native/`, and their
-compiled Windows binaries are in `bin/win32-x64/`. Everything in this README
-below has been verified against the real binaries (usage text, argument
-order, and a full extract → modify → reinject → re-extract round-trip on a
-synthetic test file) -- not just read from `--help` output.
+![Extract mode](docs/screenshot-extract.png)
+![Reinject mode](docs/screenshot-reinject.png)
+
+## Features
+
+- **Extract mode** — drag a file in, set a start offset / windowBits / minimum
+  size, get a results table of every zlib/deflate stream found (offset,
+  compressed size, uncompressed size), extracted into an output folder you pick.
+- **Reinject mode** — drag in the original file and a modified replacement,
+  give it a target offset, and it recompresses + splices the replacement back
+  in. Click a row in the Extract results table to carry its offset and size
+  straight over.
+- **A real safety net, not just a wrapper.** PackZip has an undocumented
+  footgun (below) — this app measures the actual recompressed size *before*
+  touching anything, always works on a disposable copy, and blocks the write
+  with an explicit confirmation if it would silently destroy data.
+- Live console log of the underlying tool's raw output, and a progress
+  indicator, for advanced users who want to see exactly what's happening.
+
+## Quick start
+
+Grab the installer from a [Release](../../releases) (or build it yourself,
+below), run it, and go. No separate offzip/packzip install needed — the
+compiled binaries are bundled in.
+
+## Building from source
+
+```bash
+npm install
+npm run dev        # launch with DevTools
+```
+
+```bash
+npm run dist:win    # produce a Windows installer in dist/
+```
+
+Node.js is required. `bin/win32-x64/offzip.exe` and `packzip.exe` are already
+built and committed, so you don't need a C toolchain unless you want to
+rebuild them from the vendored source under `native/` (see
+[native/offzip/README.md](native/offzip/README.md) and
+[native/packzip/README.md](native/packzip/README.md)).
+
+> **Windows + Developer Mode:** `npm run dist:win`'s NSIS installer step
+> downloads an auxiliary `winCodeSign` package and needs to create symlinks
+> while extracting it, which fails on Windows without either Developer Mode
+> enabled (Settings → Privacy & security → For developers) or an elevated
+> shell. This is an electron-builder quirk unrelated to actual code signing
+> (none is configured here) — enabling Developer Mode is the simplest fix.
+>
+> If your project directory's path contains an `&` (or other shell
+> metacharacter), run `node node_modules/electron-builder/cli.js --win`
+> directly instead of `npm run dist:win` — npm scripts shell out via
+> `cmd.exe` on Windows, which mis-parses such paths.
 
 ## Architecture
 
@@ -27,13 +77,13 @@ ffi-napi / a native Node addon.** Reasoning:
 - Both tools are `main(argc, argv)` + `printf` programs. Turning them into a
   callable native module means refactoring their entry points, taming global
   state, and rebuilding a native addon against Electron's Node ABI per
-  platform/arch -- real ongoing cost for no benefit here.
+  platform/arch — real ongoing cost for no benefit here.
 - Spawning the `.exe` gets you **process isolation for free**: a crash on
   hostile/corrupt input takes down a child process, not the Electron app.
 - Trivially cross-platform: recompile the same C source per OS/arch, drop the
   binary in the matching `bin/<platform>` folder.
 - stdout/stderr streaming maps directly onto the progress bar and console log
-  features -- no extra plumbing needed.
+  features — no extra plumbing needed.
 
 ## Directory layout
 
@@ -55,17 +105,22 @@ zlib-workbench/
 │   └── zlib/                     # (not needed -- see note below)
 ├── bin/win32-x64/                # offzip.exe, packzip.exe (already built, verified working)
 ├── scripts/build-native-win.ps1  # rebuilds native/*/src -> bin/win32-x64 if you ever need to
+├── docs/                         # README screenshots
 └── assets/icon.ico
 ```
 
 > **Note on zlib:** the vendored `packzip` source bundles its own zopfli,
 > AdvanceCOMP, LZMA SDK, and uberflate implementations under
-> `native/packzip/src/libs/`, and `offzip` bundles zopfli too -- so unlike a
+> `native/packzip/src/libs/`, and `offzip` bundles zopfli too — so unlike a
 > typical zlib-wrapping project, you likely do **not** need a separate zlib
 > install to rebuild these from source. Check each tool's `Makefile` before
 > assuming you need `native/zlib/`.
 
 ## Verified CLI contracts
+
+Everything below was checked against the actual compiled binaries (usage
+text, argument order, and a full extract → modify → reinject → re-extract
+round-trip on a synthetic test file) — not just read from `--help` output.
 
 ### offzip 0.4.1
 
@@ -76,7 +131,7 @@ offzip.exe [options] <input> [output] [offset]
 | Flag | Meaning |
 |---|---|
 | `-a` | extract ALL compressed streams found into the output folder |
-| `-o` | overwrite existing output files without an interactive prompt (**required** for a GUI -- offzip has no stdin to answer y/n on) |
+| `-o` | overwrite existing output files without an interactive prompt (**required** for a GUI — offzip has no stdin to answer y/n on) |
 | `-z NUM` | windowBits: `15` = zlib (default), `-15` = raw deflate (e.g. inside ZIP archives) |
 | `-m SIZE` | minimum compressed size to consider (default 32) |
 | `-L FILE` | dump a machine-readable list of found streams to `FILE` |
@@ -96,7 +151,7 @@ but the real file is two lines per stream):
 packzip.exe [options] <input> <output>
 ```
 - `<input>` = the modified/replacement (uncompressed) data
-- `<output>` = the archive being patched -- if it already exists, packzip
+- `<output>` = the archive being patched — if it already exists, packzip
   **injects** the newly-compressed data into it at `-o OFFSET` rather than
   overwriting the whole file
 
@@ -112,56 +167,27 @@ tool):** packzip does **not** shift or resize surrounding data.
   overwrites in place and the file's total length is unchanged (leftover
   bytes in the old slot become harmless padding).
 - If it is **larger**, packzip truncates the file immediately after the
-  newly written data -- **silently discarding everything that came after it**
+  newly written data — **silently discarding everything that came after it**
   in the original file.
 
+**Also verified:** packzip writes essentially all of its status/report text
+(including the "output size" line) to **stderr**, not stdout — offzip splits
+its banner/summary to stdout but per-item progress ticks to stderr.
+`engine.js`'s `runProcess()` captures both streams into a combined,
+arrival-order `allLines` array for exactly this reason.
+
 Because of this, `runPackzip()` in `engine.js`:
-1. Never touches your original file -- it always copies it to a working file
+1. Never touches your original file — it always copies it to a working file
    first (`<original>.patched.<ext>` by default, or a path you choose).
 2. Measures what packzip would *actually* produce, using a disposable scratch
    file (`packzip -o 0 -w BITS <replacement> <scratch>`, output file doesn't
-   pre-exist so packzip takes its compress-only path -- the resulting file's
+   pre-exist so packzip takes its compress-only path — the resulting file's
    size equals the exact bytes that would be written).
 3. If you supplied the original stream's known compressed size (auto-filled
    when you click a row in the Extract results table, or type it in
    manually) and the measured size exceeds it, the run stops **before**
    touching the working copy and the UI shows a warning banner with an
-   explicit "I understand -- inject anyway" confirmation button.
-
-## Step-by-step setup
-
-1. **Install Node.js**, if you haven't already (this dev machine doesn't have
-   it) -- get the current LTS from https://nodejs.org.
-
-2. **Install JS dependencies**
-   ```powershell
-   npm install
-   ```
-
-3. **Run the app**
-   ```powershell
-   npm run dev
-   ```
-   `--dev` opens DevTools detached. The binaries in `bin/win32-x64/` are
-   already built, so this should work immediately.
-
-4. **Package an installer** (once you're happy with it)
-   ```powershell
-   npm run dist:win
-   ```
-   `electron-builder` copies `bin/win32-x64/*` into the packaged app's
-   `resources/bin` (see `extraResources` in `package.json`), and `engine.js`
-   resolves the binary path relative to `process.resourcesPath` when
-   `app.isPackaged` is true -- same code path in dev and in the built installer.
-
-### If you ever need to rebuild the binaries from source
-
-`native/offzip/src/Makefile` and `native/packzip/src/Makefile` came with the
-original source and are the authoritative build recipe (they know about the
-bundled zopfli/LZMA/uberflate/AdvanceCOMP sub-libraries). `scripts/build-native-win.ps1`
-is a simpler MSVC/MinGW fallback for straightforward single-zlib-dependency
-builds -- prefer the real Makefile if it works in your toolchain (e.g. via
-`make` from MSYS2/MinGW, or WSL for a Linux build).
+   explicit "I understand — inject anyway" confirmation button.
 
 ## UI feature map
 
@@ -174,17 +200,44 @@ builds -- prefer the real Makefile if it works in your toolchain (e.g. via
 | Results table (offset / compressed / uncompressed size) | `#extract-results-body`, populated from offzip's `-L` list file. **Click a row** to carry its offset + compressed size over to Reinject mode |
 | Reinject original + modified dropzones, offset/windowBits fields | `#panel-reinject` |
 | Overflow safety banner + confirm | `#reinject-overflow-warning`, `#btn-reinject-force` |
-| Progress bar | `.progress-fill`, driven by `engine:progress` IPC events (indeterminate pulse -- neither tool reports a clean byte-offset percentage) |
+| Progress bar | `.progress-fill`, driven by `engine:progress` IPC events (indeterminate pulse — neither tool reports a clean byte-offset percentage) |
 | Console log of raw engine output | `#console` / `#console-body`, fed by `engine:log` IPC events streamed line-by-line from stdout/stderr |
+
+## Testing / driving the app
+
+`.claude/skills/run-desktop/` has a Playwright-based driver for launching and
+scripting the real Electron window (screenshots, clicks, direct calls into
+`window.zlibWorkbench` for IPC-level checks) — see its `SKILL.md`. Used to
+verify, against the actual binaries: both tabs render and switch correctly;
+`runOffzip` through the real IPC bridge finds the right streams; and
+`runPackzip`'s safe path, overflow-abort path, and forced-overflow path all
+behave as documented above.
 
 ## Security notes baked in
 
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` on the
-  `BrowserWindow` -- the renderer only ever touches the explicit API surface
+  `BrowserWindow` — the renderer only ever touches the explicit API surface
   in `preload.js`, never raw `fs`/`child_process`.
 - A `Content-Security-Policy` meta tag locks the renderer to same-origin
   scripts/styles.
 - Drag-and-drop file paths are resolved via `webUtils.getPathForFile`
   (`File.path` was removed in modern Electron for exactly this reason).
-- Reinject mode never writes to your original file -- see the safety caveat
+- Reinject mode never writes to your original file — see the safety caveat
   above.
+
+## Credits & licensing
+
+Offzip and PackZip are by **Luigi Auriemma** ([aluigi.org](https://aluigi.org)),
+Copyright 2004–2019, licensed under the **GNU GPL v2 (or later)** — see the
+header comments in `native/offzip/src/offzip.c` and `native/packzip/src/packzip.c`.
+PackZip also bundles third-party compression libraries under their own
+licenses: **zopfli** (Apache License 2.0, Google Inc.), the **LZMA SDK**
+(public domain, Igor Pavlov), and modified **7-Zip**/AdvanceCOMP sources
+(LGPL, see `native/packzip/src/libs/7z_advancecomp/README`).
+
+This repository's own code (the Electron app in `src/`) doesn't yet declare
+a license of its own — add a `LICENSE` file if you want to make its terms
+explicit, keeping in mind that offzip/packzip's GPLv2 terms apply to any
+distribution that combines/links their source directly (this project only
+spawns their compiled binaries as separate processes, which is a materially
+different arrangement, but it's worth understanding before you redistribute).

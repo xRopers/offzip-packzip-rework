@@ -119,12 +119,22 @@ function runProcess(jobId, exePath, args, cwd, hooks) {
 
     activeProcesses.set(jobId, child);
 
+    // IMPORTANT (verified empirically): packzip writes essentially ALL of its
+    // status/report text to stderr, not stdout -- offzip splits banner/summary
+    // text to stdout but its per-item progress ticks to stderr. Neither
+    // stream is "errors only" for these tools, so `allLines` (both streams,
+    // in arrival order) is what callers should scan for report lines; the
+    // stdout/stderr split is kept only for the `[stderr]`-tagged console
+    // display below.
     const stdoutLines = [];
+    const stderrLines = [];
+    const allLines = [];
     let linesSeen = 0;
 
     const rlOut = readline.createInterface({ input: child.stdout });
     rlOut.on('line', (line) => {
       stdoutLines.push(line);
+      allLines.push(line);
       linesSeen += 1;
       onLog(line);
       // Neither tool reports a clean byte-offset progress percentage, so this
@@ -133,16 +143,41 @@ function runProcess(jobId, exePath, args, cwd, hooks) {
     });
 
     const rlErr = readline.createInterface({ input: child.stderr });
-    rlErr.on('line', (line) => onLog(`[stderr] ${line}`));
+    rlErr.on('line', (line) => {
+      stderrLines.push(line);
+      allLines.push(line);
+      onLog(`[stderr] ${line}`);
+    });
+
+    let closedCount = 0;
+    let exitCode = null;
+    let processExited = false; // separate from exitCode, which is legitimately null if killed by signal (e.g. cancel())
+    let settled = false;
+
+    // Wait for the process AND both readline interfaces to report closed
+    // before resolving -- child 'close' alone can race ahead of readline
+    // still flushing a final, not-newline-terminated buffered line.
+    function maybeResolve() {
+      if (settled || closedCount < 2 || !processExited) return;
+      settled = true;
+      activeProcesses.delete(jobId);
+      resolve({ exitCode, stdoutLines, stderrLines, allLines });
+    }
+
+    rlOut.on('close', () => { closedCount += 1; maybeResolve(); });
+    rlErr.on('close', () => { closedCount += 1; maybeResolve(); });
 
     child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
       activeProcesses.delete(jobId);
       reject(err);
     });
 
     child.on('close', (code) => {
-      activeProcesses.delete(jobId);
-      resolve({ exitCode: code, stdoutLines });
+      exitCode = code;
+      processExited = true;
+      maybeResolve();
     });
   });
 }
@@ -300,10 +335,12 @@ async function runPackzip(jobId, options, hooks) {
   const args = buildPackzipArgs(options, outputFile);
   hooks.onLog(`> packzip ${args.join(' ')}`);
 
-  const { exitCode, stdoutLines } = await runProcess(jobId, exePath, args, path.dirname(outputFile), hooks);
+  const { exitCode, allLines } = await runProcess(jobId, exePath, args, path.dirname(outputFile), hooks);
 
+  // packzip's report (including the "output size" line) is written to
+  // stderr, not stdout -- verified empirically. Scan both, via allLines.
   let reportedSize = null;
-  for (const line of stdoutLines) {
+  for (const line of allLines) {
     const m = line.match(PACKZIP_OUTPUT_SIZE_LINE);
     if (m) { reportedSize = Number(m[1]); break; }
   }
